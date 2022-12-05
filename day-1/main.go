@@ -4,6 +4,7 @@ import (
 	_ "embed"
 	"fmt"
 	"log"
+	"sort"
 	"strconv"
 	"strings"
 )
@@ -11,11 +12,17 @@ import (
 //go:embed input.txt
 var input string
 
+var inventories []inventory
+
 func main() {
-	var (
-		inventories = parseInventories()
-		max         = inventories[0].calories.sum()
-	)
+	parseInventories()
+
+	partOne()
+	partTwo()
+}
+
+func partOne() {
+	max := inventories[0].calories.sum()
 
 	for i := 1; i < len(inventories); i++ {
 		calories := inventories[i].calories.sum()
@@ -27,11 +34,17 @@ func main() {
 	fmt.Println(max)
 }
 
-func parseInventories() []inventory {
-	var (
-		inventories []inventory
-		current     inventory
-	)
+func partTwo() {
+	sort.Slice(inventories, func(i, j int) bool {
+		return inventories[i].calories.sum() > inventories[j].calories.sum()
+	})
+
+	sum := inventories[0].calories.sum() + inventories[1].calories.sum() + inventories[2].calories.sum()
+	fmt.Println(sum)
+}
+
+func parseInventories() {
+	var current inventory
 
 	for _, line := range strings.Split(input, "\n") {
 		if line == "" {
@@ -46,8 +59,6 @@ func parseInventories() []inventory {
 		}
 		current.calories = append(current.calories, calories)
 	}
-
-	return inventories
 }
 
 type inventory struct {
