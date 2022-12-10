@@ -11,12 +11,22 @@ import (
 	"github.com/fatih/color"
 )
 
+const (
+	maxSize        = 100_000
+	spaceAvailable = 70_000_000
+	updateSize     = 30_000_000
+)
+
 //go:embed input.txt
 var input string
 
 var (
 	lines = strings.Split(input, "\n")
-	tree  *node
+	tree  = &node{
+		name:     "/",
+		children: map[string]*node{},
+		type_:    nodeDir,
+	}
 )
 
 func main() {
@@ -27,10 +37,9 @@ func main() {
 }
 
 func partOne() {
-	fmt.Println(tree)
 	var (
-		dirs = findAllDirsWithMaxSize(tree, 100_000)
-		sum int
+		dirs = findAllDirsWithMaxSize(tree, maxSize)
+		sum  int
 	)
 
 	for _, dir := range dirs {
@@ -40,12 +49,121 @@ func partOne() {
 	fmt.Println(sum)
 }
 
-func findAllDirsWithMaxSize(n *node, maxSize int) []*node {
-	var dirs []*node
+func partTwo() {
+	var (
+		flatDirs           = flattenTree(tree)
+		totalSpaceUsed     = tree.Size()
+		currentUnusedSpace = spaceAvailable - totalSpaceUsed
+		spaceToFree        = updateSize - currentUnusedSpace
+	)
 
-	if n.type_ != nodeDir {
-		return dirs
+	sort.Slice(flatDirs, func(i, j int) bool {
+		return flatDirs[i].Size() < flatDirs[j].Size()
+	})
+
+
+	for _, dir := range flatDirs {
+		dirSize := dir.Size()
+
+		if dirSize < spaceToFree {
+			continue
+		}
+
+		fmt.Println(dirSize)
+		break
 	}
+}
+
+func flattenTree(n *node) []*node {
+	var flatDirs []*node
+
+	if n.type_ == nodeDir {
+		flatDirs = append(flatDirs, n)
+	}
+
+	for _, child := range n.children {
+		if child.type_ != nodeDir {
+			continue
+		}
+
+		flatDirs = append(flatDirs, flattenTree(child)...)
+	}
+
+	return flatDirs
+}
+
+func parseTree() {
+	var (
+		currentDirectory = tree
+	)
+
+	for i := 0; i < len(lines); i++ {
+		line := lines[i]
+		if line == "" {
+			continue
+		}
+
+		tokens := strings.Split(line, " ")
+
+		switch tokens[0] {
+		case "$":
+			switch tokens[1] {
+			case "cd":
+				// change dir
+				switch tokens[2] {
+				case "..":
+					if currentDirectory == tree {
+						continue
+					}
+					currentDirectory = currentDirectory.parent
+				case "/":
+					// go to root
+					currentDirectory = tree
+				default:
+					// go to dir
+					child, ok := currentDirectory.children[tokens[2]]
+					if !ok {
+						child = &node{
+							name:     tokens[2],
+							children: map[string]*node{},
+							type_:    nodeDir,
+							parent:   currentDirectory,
+						}
+						currentDirectory.children[tokens[2]] = child
+					}
+					currentDirectory = child
+				}
+			case "ls":
+				// list
+				continue
+			}
+		case "dir":
+			// directory
+			currentDirectory.children[tokens[1]] = &node{
+				name:     tokens[1],
+				children: map[string]*node{},
+				type_:    nodeDir,
+				parent:   currentDirectory,
+			}
+			continue
+		default:
+			// file
+			size, _ := strconv.Atoi(tokens[0])
+			currentDirectory.children[tokens[1]] = &node{
+				name:   tokens[1],
+				size:   size,
+				parent: currentDirectory,
+			}
+		}
+	}
+}
+
+func findAllDirsWithMaxSize(n *node, maxSize int) []*node {
+	if n.type_ == nodeFile {
+		return nil
+	}
+
+	var dirs []*node
 
 	if n.Size() <= maxSize {
 		dirs = append(dirs, n)
@@ -58,69 +176,36 @@ func findAllDirsWithMaxSize(n *node, maxSize int) []*node {
 	return dirs
 }
 
-func partTwo() {
-}
-
-func parseTree() {
-	tree, _ = parseDir("/", 0)
-}
-
-func parseDir(name string, pos int) (*node, int) {
-	var (
-		dir = &node{
-			name:     name,
-			type_:    nodeDir,
-			children: map[string]*node{},
-		}
-		i = pos
-	)
-
-	for i := pos; i < len(lines); i++ {
-		line := lines[i]
-
-		switch line {
-		case "$ cd /", "$ ls", "":
-			continue
-		case "$ cd ..":
-			if name == "/" {
-				continue
-			}
-			return dir, i + 1
-		}
-
-		if strings.HasPrefix(line, "dir ") {
-			continue
-		}
-
-		if strings.HasPrefix(line, "$ cd ") {
-			targetName := strings.TrimPrefix(line, "$ cd ")
-			parsedDir, shift := parseDir(targetName, i+1)
-			dir.children[targetName] = parsedDir
-			i += shift
-			continue
-		}
-
-		sizeStr, fileName, _ := strings.Cut(line, " ")
-		size, err := strconv.Atoi(sizeStr)
-		if err != nil {
-			log.Fatal(err, line, i)
-		}
-
-		dir.children[fileName] = &node{
-			name:  fileName,
-			type_: nodeFile,
-			size:  size,
-		}
-	}
-
-	return dir, i + 1
-}
-
 type node struct {
 	name     string
 	size     int
 	type_    nodeType
 	children map[string]*node
+	parent   *node
+}
+
+func (n *node) insert(targetPath string, v *node) {
+	log.Printf("target path = %s, v = %+v", targetPath, v.name)
+	if targetPath == n.name {
+		n.children[v.name] = v
+		return
+	}
+
+	segments := strings.Split(targetPath, "/")
+
+	if n.children == nil {
+		n.children = map[string]*node{}
+	}
+
+	if _, ok := n.children[segments[0]]; !ok {
+		n.children[segments[0]] = &node{
+			name:     segments[0],
+			children: map[string]*node{},
+			type_:    nodeDir,
+		}
+	}
+
+	n.children[segments[0]].insert(strings.Join(segments[1:], "/"), v)
 }
 
 func (n *node) String() string {
@@ -148,7 +233,6 @@ func stringNode(n *node, depth int) string {
 	var b strings.Builder
 
 	b.WriteString(fmt.Sprintf("%s- %s (total=%d)\n", strings.Repeat("\t", depth), n.name, n.Size()))
-
 	childrenNames := make([]string, 0, len(n.children))
 	for name := range n.children {
 		childrenNames = append(childrenNames, name)
@@ -159,7 +243,7 @@ func stringNode(n *node, depth int) string {
 		b.WriteString(stringNode(n.children[name], depth+1))
 	}
 
-	if n.Size() <= 100_000 {
+	if n.Size() <= maxSize {
 		return color.New(color.FgGreen).Sprint(b.String())
 	}
 
